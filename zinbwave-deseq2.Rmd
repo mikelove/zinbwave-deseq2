@@ -10,45 +10,63 @@ library(scater)
 params <- newSplatParams()
 params
 slotNames(params)
-# these are both natural log scale
+# these DE params are natural log scale
 params <- setParam(params, "de.facLoc", 1) 
-params <- setParam(params, "de.facScale", .1)
-params <- setParam(params, "dropout.mid", 1)
+params <- setParam(params, "de.facScale", .25)
+params <- setParam(params, "dropout.mid", 2)
 params <- setParam(params, "dropout.shape", -1)
 set.seed(1)
 sim <- splatSimulate(params,
                      group.prob=c(.5,.5), method="groups",
                      dropout.present=TRUE)
-sim <- normalise(sim)
-#plotPCA(sim, colour_by="Group")
-counts(sim)[1:5,1:10]
 plot(log10(rowMeans(counts(sim))), rowMeans(assays(sim)[["Dropout"]]))
-sum(counts(sim) == 0)
-sum(assays(sim)[["Dropout"]])
-#
-z <- rowData(sim)$DEFacGroup1
-hist(log(z[z > 1]), breaks=30, col="grey", freq=FALSE, ylim=c(0,5))
-s <- 0:150/100
-lines(s, dnorm(s, 1, .1), col="hotpink", lwd=3)
-#
-with(rowData(sim), table(DEFacGroup1 != 1, DEFacGroup2 != 1))
+#z <- rowData(sim)$DEFacGroup1
+#hist(log(z[z > 1]), breaks=30, col="grey", freq=FALSE, ylim=c(0,5))
+#s <- 0:150/100
+#lines(s, dnorm(s, 1, .1), col="red", lwd=3)
+#with(rowData(sim), table(DEFacGroup1 != 1, DEFacGroup2 != 1))
+rowData(sim)$log2FC <- with(rowData(sim), log2(DEFacGroup2/DEFacGroup1))
 ```
 
 ```{r}
 library(zinbwave)
+# low count filter
 keep <- rowSums(counts(sim) >= 5) >= 5
 table(keep)
 zinb <- sim[keep,]
+# reorganize assays
 nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
+# variance filter
 rv <- rowVars(log2(counts(zinb) + 10))
-zinb <- zinb[head(order(rv, decreasing=TRUE),100),]
-zinb <- zinbwave(zinb, K=2)
+zinb <- zinb[head(order(rv, decreasing=TRUE),1000),]
+dim(zinb)
+system.time({
+  zinb <- zinbwave(zinb, K=2, BPPARAM=SerialParam())
+})
+```
+
+```{r}
 suppressPackageStartupMessages(library(DESeq2))
 zinb$condition <- factor(zinb$Group)
 dds <- DESeqDataSet(zinb, design=~condition)
 dds <- DESeq(dds, sfType="poscounts", useT=TRUE, minmu=1e-6)
+plotDispEsts(dds)
+```
+
+```{r}
 res <- lfcShrink(dds, coef=2, type="apeglm")
-lfc <- with(mcols(dds), log2(DEFacGroup2/DEFacGroup1))
-plot(lfc, res$log2FoldChange)
+plot(mcols(dds)$log2FC, res$log2FoldChange); abline(0,1,col="red")
+```
+
+```{r}
+res.mle <- results(dds)
+plot(mcols(dds)$log2FC, res.mle$log2FoldChange); abline(0,1,col="red")
+```
+
+```{r}
+ncts <- counts(dds, normalized=TRUE)
+simple.lfc <- log2(rowMeans(ncts[,dds$condition == "Group2"])/
+                   rowMeans(ncts[,dds$condition == "Group1"]))
+plot(mcols(dds)$log2FC, simple.lfc); abline(0,1,col="red")
 ```
