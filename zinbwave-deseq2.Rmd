@@ -1,0 +1,29 @@
+---
+title: "ZINB-WaVE + DESeq2 integration"
+author: "Michael Love"
+output: html_document
+---
+
+```{r}
+library(splatter)
+params <- newSplatParams()
+params
+slotNames(params)
+params <- setParam(params, "de.facLoc", 0.5)
+params <- setParam(params, "de.facScale", 0.5)
+set.seed(1)
+sim <- splatSimulate(params,
+                     group.prob=c(.5,.5), method="groups",
+                     dropout.present=TRUE)
+sim <- normalise(sim)
+plotPCA(sim, colour_by="Group")
+counts(sim)[1:5,1:10]
+plot(rowMeans(counts(sim)), rowMeans(assays(sim)[["Dropout"]]))
+sum(counts(sim) == 0)
+sum(assays(sim)[["Dropout"]])
+fc <- rowData(sim)[,"DEFacGroup2"] / rowData(sim)[,"DEFacGroup1"]
+hist(log2(fc))
+hist(log2(fc[fc != 1]), breaks=30, col="grey")
+```
+
+
