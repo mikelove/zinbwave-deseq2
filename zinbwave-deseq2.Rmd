@@ -4,64 +4,79 @@ author: "Michael Love"
 output: html_document
 ---
 
+Van den Berge & Perraudeau *et al* "Observation weights unlock bulk
+RNA-seq tools for zero inflation and single-cell applications" Genome
+Biology (2018)
+[doi: 10.1186/s13059-018-1406-4](https://doi.org/10.1186/s13059-018-1406-4)
+
+> It is important to note that while methods such as ZINB-WaVE and
+> ZINGER can successfully identify excess zeros, they cannot, however,
+> readily discriminate between their underlying causes, i.e., between
+> technical (e.g., dropout) and biological (e.g., bursting) zeros. 
+
 ```{r}
 library(splatter)
 library(scater)
 params <- newSplatParams()
-params
-slotNames(params)
+#params
+#slotNames(params)
 # these DE params are natural log scale
 params <- setParam(params, "de.facLoc", 1) 
 params <- setParam(params, "de.facScale", .25)
-params <- setParam(params, "dropout.mid", 2)
-params <- setParam(params, "dropout.shape", -1)
+# add more dropout 
+params <- setParam(params, "dropout.mid", 3)
+# higher dispersion heterogeneity
+params <- setParam(params, "bcv.common", .05)
+params <- setParam(params, "bcv.df", 3)
 set.seed(1)
-sim <- splatSimulate(params,
-                     group.prob=c(.5,.5), method="groups",
-                     dropout.present=TRUE)
+sim <- splatSimulate(params, group.prob=c(.5,.5), method="groups", dropout.present=TRUE)
 plot(log10(rowMeans(counts(sim))), rowMeans(assays(sim)[["Dropout"]]))
 #z <- rowData(sim)$DEFacGroup1
 #hist(log(z[z > 1]), breaks=30, col="grey", freq=FALSE, ylim=c(0,5))
-#s <- 0:150/100
-#lines(s, dnorm(s, 1, .1), col="red", lwd=3)
-#with(rowData(sim), table(DEFacGroup1 != 1, DEFacGroup2 != 1))
 rowData(sim)$log2FC <- with(rowData(sim), log2(DEFacGroup2/DEFacGroup1))
+rowData(sim)$trueDisp <- rowMeans(assays(sim)[["BCV"]])^2
+with(rowData(sim)[rowData(sim)$GeneMean> 1,], plot(GeneMean, trueDisp, log="xy"))
 ```
 
 ```{r}
 library(zinbwave)
 # low count filter
-keep <- rowSums(counts(sim) >= 5) >= 5
+keep <- rowSums(counts(sim) >= 5) >= 15
 table(keep)
 zinb <- sim[keep,]
+zinb$condition <- factor(zinb$Group)
 # reorganize assays
 nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
-# variance filter
-rv <- rowVars(log2(counts(zinb) + 10))
-zinb <- zinb[head(order(rv, decreasing=TRUE),1000),]
-dim(zinb)
+# 30 sec for ~1500 genes
 system.time({
-  zinb <- zinbwave(zinb, K=2, BPPARAM=SerialParam())
+  zinb <- zinbwave(zinb, K=0, BPPARAM=SerialParam())
 })
 ```
 
 ```{r}
 suppressPackageStartupMessages(library(DESeq2))
-zinb$condition <- factor(zinb$Group)
 dds <- DESeqDataSet(zinb, design=~condition)
-dds <- DESeq(dds, sfType="poscounts", useT=TRUE, minmu=1e-6)
+# 20 sec
+system.time({
+  dds <- DESeq(dds, sfType="poscounts", useT=TRUE, minmu=1e-6, minRep=Inf)
+})
 plotDispEsts(dds)
 ```
 
 ```{r}
+with(mcols(dds), plot(trueDisp, dispMAP, log="xy"));abline(0,1,col="red")
+with(mcols(dds), plot(baseMean, trueDisp, log="xy"))
+```
+
+```{r}
 res <- lfcShrink(dds, coef=2, type="apeglm")
-plot(mcols(dds)$log2FC, res$log2FoldChange); abline(0,1,col="red")
+plot(mcols(dds)$log2FC, res$log2FoldChange, ylim=c(-3,3)); abline(0,1,col="red")
 ```
 
 ```{r}
 res.mle <- results(dds)
-plot(mcols(dds)$log2FC, res.mle$log2FoldChange); abline(0,1,col="red")
+plot(mcols(dds)$log2FC, res.mle$log2FoldChange, ylim=c(-3,3)); abline(0,1,col="red")
 ```
 
 ```{r}
