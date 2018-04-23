@@ -32,7 +32,8 @@ would not help you find these differences. It instead helps to uncover
 differences in counts besides the zero component (whether those zeros
 be biological or technical). 
 
-```{r}
+
+```r
 library(splatter)
 params <- newSplatParams()
 #params
@@ -44,23 +45,69 @@ params <- setParam(params, "de.facScale", .25)
 params <- setParam(params, "dropout.mid", 3)
 ```
 
-```{r}
+
+```r
 set.seed(1)
 sim <- splatSimulate(params, group.prob=c(.5,.5), method="groups", dropout.present=TRUE)
 ```
 
-```{r dropout}
+```
+## Getting parameters...
+```
+
+```
+## Creating simulation object...
+```
+
+```
+## Simulating library sizes...
+```
+
+```
+## Simulating gene means...
+```
+
+```
+## Simulating group DE...
+```
+
+```
+## Simulating cell means...
+```
+
+```
+## Simulating BCV...
+```
+
+```
+## Simulating counts..
+```
+
+```
+## Simulating dropout (if needed)...
+```
+
+```
+## Done!
+```
+
+
+```r
 plot(log10(rowMeans(assays(sim)[["TrueCounts"]])), rowMeans(assays(sim)[["Dropout"]]))
 ```
 
-```{r}
+<img src="zinbwave-deseq2_files/figure-html/dropout-1.png" width="672" />
+
+
+```r
 # note: each group gets it's own DE genes -- meaning some will be "doubly DE"
 #z <- rowData(sim)$DEFacGroup1
 #hist(log(z[z > 1]), breaks=30, col="grey", freq=FALSE, ylim=c(0,5))
 rowData(sim)$log2FC <- with(rowData(sim), log2(DEFacGroup2/DEFacGroup1))
 ```
 
-```{r trueDisp}
+
+```r
 rowData(sim)$trueDisp <- rowMeans(assays(sim)[["BCV"]])^2
 gridlines <- c(1e-2,1e-1,1); cols <- c("blue","red","darkgreen")
 with(rowData(sim)[rowData(sim)$GeneMean> 1,],
@@ -69,11 +116,23 @@ abline(h=gridlines, col=cols)
 text(300, gridlines, labels=gridlines, col=cols, pos=3)
 ```
 
-```{r}
+<img src="zinbwave-deseq2_files/figure-html/trueDisp-1.png" width="672" />
+
+
+```r
 library(zinbwave)
 # low count filter - at least 25 samples with count of 5 or more
 keep <- rowSums(counts(sim) >= 5) >= 25
 table(keep)
+```
+
+```
+## keep
+## FALSE  TRUE 
+##  9070   930
+```
+
+```r
 zinb <- sim[keep,]
 zinb$condition <- factor(zinb$Group)
 # reorganize assays from splatter
@@ -85,7 +144,13 @@ system.time({
 })
 ```
 
-```{r}
+```
+##    user  system elapsed 
+##  16.260   1.538  17.864
+```
+
+
+```r
 suppressPackageStartupMessages(library(DESeq2))
 dds <- DESeqDataSet(zinb, design=~condition)
 # ~15 sec
@@ -94,22 +159,61 @@ system.time({
 })
 ```
 
-```{r plotDispEsts}
+```
+## estimating size factors
+```
+
+```
+## estimating dispersions
+```
+
+```
+## gene-wise dispersion estimates
+```
+
+```
+## mean-dispersion relationship
+```
+
+```
+## final dispersion estimates
+```
+
+```
+## fitting model and testing
+```
+
+```
+##    user  system elapsed 
+##  12.568   0.426  13.038
+```
+
+
+```r
 plotDispEsts(dds, ylim=c(1e-3, 2))
 ```
 
-```{r trueDispVsMAP}
+<img src="zinbwave-deseq2_files/figure-html/plotDispEsts-1.png" width="672" />
+
+
+```r
 with(mcols(dds), plot(trueDisp, dispMAP, log="xy"))
 abline(0,1,col="red")
 ```
 
-```{r trueLFCVsMLE}
+<img src="zinbwave-deseq2_files/figure-html/trueDispVsMAP-1.png" width="672" />
+
+
+```r
 # we already performed low count filtering
 res <- results(dds, independentFiltering=FALSE)
 plot(mcols(dds)$log2FC, res$log2FoldChange, ylim=c(-4,4)); abline(0,1,col="red")
 ```
 
-```{r trueLFCVsSimple}
+<img src="zinbwave-deseq2_files/figure-html/trueLFCVsMLE-1.png" width="672" />
+
+
+```r
 # the "simple" LFC does not work - it overestimates the true DE LFC
 # because of the dropout zeros in the group with the smaller mean.
 # it also has a lot of noise for the null genes
@@ -119,8 +223,28 @@ simple.lfc <- log2(rowMeans(ncts[,dds$condition == "Group2"])/
 plot(mcols(dds)$log2FC, simple.lfc, ylim=c(-4,4)); abline(0,1,col="red")
 ```
 
-```{r}
+<img src="zinbwave-deseq2_files/figure-html/trueLFCVsSimple-1.png" width="672" />
+
+
+```r
 tab <- table(DE.status=mcols(dds)$log2FC != 0, sig=res$padj < .05)
 tab
+```
+
+```
+##          sig
+## DE.status FALSE TRUE
+##     FALSE   691   11
+##     TRUE     11  217
+```
+
+```r
 round(prop.table(tab, 2), 3)
+```
+
+```
+##          sig
+## DE.status FALSE  TRUE
+##     FALSE 0.984 0.048
+##     TRUE  0.016 0.952
 ```
