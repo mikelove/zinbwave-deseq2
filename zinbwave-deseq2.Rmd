@@ -4,7 +4,7 @@ author: "Michael Love"
 output: html_document
 ---
 
-Here we use the *splatter* package to simulation single-cell RNA-seq
+Here we use the *splatter* package to simulate single-cell RNA-seq
 data.
 
 * Zappia, Phipson, and Oshlack "Splatter: simulation of single-cell RNA
