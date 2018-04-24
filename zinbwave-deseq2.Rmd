@@ -124,3 +124,7 @@ tab <- table(DE.status=mcols(dds)$log2FC != 0, sig=res$padj < .05)
 tab
 round(prop.table(tab, 2), 3)
 ```
+
+```{r}
+session_info()
+```
