@@ -1,5 +1,5 @@
 ---
-title: "ZINB-WaVE + DESeq2 integration"
+title: "ZINB-WaVE + DESeq2 integration for single-cell RNA-seq"
 author: "Michael Love"
 output: html_document
 ---
@@ -32,8 +32,10 @@ would not help you find these differences. It instead helps to uncover
 differences in counts besides the zero component (whether those zeros
 be biological or technical). 
 
+### Simulate single-cell count data with *splatter*
+
 ```{r}
-library(splatter)
+suppressPackageStartupMessages(library(splatter))
 params <- newSplatParams()
 #params
 #slotNames(params)
@@ -69,6 +71,8 @@ abline(h=gridlines, col=cols)
 text(300, gridlines, labels=gridlines, col=cols, pos=3)
 ```
 
+### Model zero component using *zinbwave*
+
 ```{r}
 library(zinbwave)
 # low count filter - at least 25 samples with count of 5 or more
@@ -76,14 +80,20 @@ keep <- rowSums(counts(sim) >= 5) >= 25
 table(keep)
 zinb <- sim[keep,]
 zinb$condition <- factor(zinb$Group)
-# reorganize assays from splatter
+# we need to reorganize the assays in the SumExp from splatter
 nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
-# ~15 sec for ~1500 genes
+# ~15 sec for ~900 genes and 100 cells
 system.time({
   zinb <- zinbwave(zinb, K=0, BPPARAM=SerialParam())
 })
 ```
+
+### Estimate dispersion and DE using *DESeq2*
+
+Below we use the default Wald test, although Van De Berge and
+Perraudeau and others have shown the LRT may perform better for null
+hypothesis testing.
 
 ```{r}
 suppressPackageStartupMessages(library(DESeq2))
@@ -94,14 +104,21 @@ system.time({
 })
 ```
 
+Good to plot the dispersion estimates for *DESeq2* on single-cell data:
+
 ```{r plotDispEsts}
 plotDispEsts(dds, ylim=c(1e-3, 2))
 ```
+
+Compare dispersion on the non-zero-component counts to the true value
+used for simulation. 
 
 ```{r trueDispVsMAP}
 with(mcols(dds), plot(trueDisp, dispMAP, log="xy"))
 abline(0,1,col="red")
 ```
+
+Extract results table.
 
 ```{r trueLFCVsMLE}
 # we already performed low count filtering
@@ -109,15 +126,18 @@ res <- results(dds, independentFiltering=FALSE)
 plot(mcols(dds)$log2FC, res$log2FoldChange, ylim=c(-4,4)); abline(0,1,col="red")
 ```
 
+Below we show that the "simple" LFC does not work - it over-estimates
+the true DE LFC because of the dropout zeros in the group with the
+smaller mean. It also has a lot of noise for the null genes.
+
 ```{r trueLFCVsSimple}
-# the "simple" LFC does not work - it overestimates the true DE LFC
-# because of the dropout zeros in the group with the smaller mean.
-# it also has a lot of noise for the null genes
 ncts <- counts(dds, normalized=TRUE)
 simple.lfc <- log2(rowMeans(ncts[,dds$condition == "Group2"])/
                    rowMeans(ncts[,dds$condition == "Group1"]))
 plot(mcols(dds)$log2FC, simple.lfc, ylim=c(-4,4)); abline(0,1,col="red")
 ```
+
+How well do we do in null hypothesis testing:
 
 ```{r}
 tab <- table(DE.status=mcols(dds)$log2FC != 0, sig=res$padj < .05)
