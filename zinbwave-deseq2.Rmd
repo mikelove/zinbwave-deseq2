@@ -43,12 +43,13 @@ params <- newSplatParams()
 params <- setParam(params, "de.facLoc", 1) 
 params <- setParam(params, "de.facScale", .25)
 # add a lot more dropout - see if ZI weighting works
+params <- setParam(params, "dropout.type", "experiment")
 params <- setParam(params, "dropout.mid", 3)
 ```
 
 ```{r}
 set.seed(1)
-sim <- splatSimulate(params, group.prob=c(.5,.5), method="groups", dropout.present=TRUE)
+sim <- splatSimulate(params, group.prob=c(.5,.5), method="groups")
 ```
 
 ```{r dropout}
@@ -84,8 +85,9 @@ zinb$condition <- factor(zinb$Group)
 nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
 # ~15 sec for ~900 genes and 100 cells
+# epsilon setting as recommended by Koen and Fanny
 system.time({
-  zinb <- zinbwave(zinb, K=0, BPPARAM=SerialParam())
+  zinb <- zinbwave(zinb, K=0, BPPARAM=SerialParam(), epsilon=1e12)
 })
 ```
 
@@ -104,11 +106,50 @@ system.time({
 })
 ```
 
-Good to plot the dispersion estimates for *DESeq2* on single-cell data:
+### Plot dispersion estimates
+
+It is recommended to plot the dispersion estimates for *DESeq2* on
+single-cell data. As discussed in the *DESeq2* paper, it becomes
+difficult to accurately estimate the dispersion when the counts are
+very small, because the Poisson component of the variance is
+dominant. Therefore we see some very low dispersion estimates here,
+although the trend is still accurately capturing the upper proportion.
+So here everything looks good.
 
 ```{r plotDispEsts}
-plotDispEsts(dds, ylim=c(1e-3, 2))
+plotDispEsts(dds)
 ```
+
+If the parametric trend fails to fit (there would be a warning in this
+case), one should check the dispersion plot as above. If it looks like
+the dispersion fit is being thrown off by the low count genes with low
+dispersion estimates at the bottom of the plot, there is a relatively
+easy solution: one can filter out more of the low count genes only for
+the dispersion estimation step, so that the trend still captures the upper
+portion. This is pretty easy to do in *DESeq2*, to filter genes solely
+for the dispersion trend estimation, but to use a larger set for the
+rest of the analysis. An example of how this can be done:
+
+```{r}
+keepForDispTrend <- rowSums(counts(dds) >= 10) >= 25
+dds2 <- estimateDispersionsFit(dds[keepForDispTrend,])
+plotDispEsts(dds2)
+```
+
+One would then assign the dispersion function to the original dataset,
+re-estimate final dispersions, check `plotDispEsts`, and then either
+re-run the Wald or LRT function (this chunk not evaluated):
+
+```{r, eval=FALSE}
+dispersionFunction(dds) <- dispersionFunction(dds2)
+dds <- estimateDispersionsMAP(dds)
+# for the Wald:
+dds <- nbinomWaldTest(dds, useT=TRUE, minmu=1e-6)
+# or for the LRT:
+dds <- nbinomLRT(dds, minmu=1e-6)
+```
+
+### Evaluate how well we did on simulated data
 
 Compare dispersion on the non-zero-component counts to the true value
 used for simulation. 
