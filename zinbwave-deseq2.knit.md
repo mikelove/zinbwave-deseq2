@@ -152,7 +152,7 @@ system.time({
 
 ```
 ##    user  system elapsed 
-##  16.783   1.873  18.865
+##  15.880   1.709  17.678
 ```
 
 ### Estimate dispersion and DE using *DESeq2*
@@ -197,7 +197,7 @@ system.time({
 
 ```
 ##    user  system elapsed 
-##  14.191   0.750  15.289
+##  13.632   0.692  14.503
 ```
 
 ### Plot dispersion estimates
@@ -234,7 +234,7 @@ dds2 <- estimateDispersionsFit(dds[keepForDispTrend,])
 plotDispEsts(dds2)
 ```
 
-<img src="zinbwave-deseq2_files/figure-html/unnamed-chunk-6-1.png" width="672" />
+<img src="zinbwave-deseq2_files/figure-html/plotDispEsts2-1.png" width="672" />
 
 One would then assign the dispersion function to the original dataset,
 re-estimate final dispersions, check `plotDispEsts`, and then either

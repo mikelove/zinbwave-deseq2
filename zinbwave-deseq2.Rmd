@@ -130,7 +130,7 @@ portion. This is pretty easy to do in *DESeq2*, to filter genes solely
 for the dispersion trend estimation, but to use a larger set for the
 rest of the analysis. An example of how this can be done:
 
-```{r}
+```{r plotDispEsts2}
 keepForDispTrend <- rowSums(counts(dds) >= 10) >= 25
 dds2 <- estimateDispersionsFit(dds[keepForDispTrend,])
 plotDispEsts(dds2)
