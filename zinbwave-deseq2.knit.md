@@ -247,7 +247,7 @@ dds <- estimateDispersionsMAP(dds)
 # for the Wald:
 dds <- nbinomWaldTest(dds, useT=TRUE, minmu=1e-6)
 # or for the LRT:
-dds <- nbinomLRT(dds, minmu=1e-6)
+dds <- nbinomLRT(dds, reduced=~1, minmu=1e-6)
 ```
 
 ### Evaluate how well we did on simulated data
