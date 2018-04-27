@@ -84,8 +84,7 @@ zinb$condition <- factor(zinb$Group)
 # we need to reorganize the assays in the SumExp from splatter
 nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
-# ~15 sec for ~900 genes and 100 cells
-# epsilon setting as recommended by Koen and Fanny
+# epsilon setting as recommended by the ZINB-WaVE integration paper
 system.time({
   zinb <- zinbwave(zinb, K=0, BPPARAM=SerialParam(), epsilon=1e12)
 })
@@ -93,16 +92,16 @@ system.time({
 
 ### Estimate dispersion and DE using *DESeq2*
 
-Below we use the default Wald test, although Van De Berge and
-Perraudeau and others have shown the LRT may perform better for null
-hypothesis testing.
+Van De Berge and Perraudeau and others have shown the LRT may perform
+better for null hypothesis testing, so we use the LRT. In order to use
+the Wald test, it is recommended to set `useT=TRUE`.
 
 ```{r}
 suppressPackageStartupMessages(library(DESeq2))
 dds <- DESeqDataSet(zinb, design=~condition)
-# ~15 sec
 system.time({
-  dds <- DESeq(dds, sfType="poscounts", useT=TRUE, minmu=1e-6, minRep=Inf)
+  dds <- DESeq(dds, test="LRT", reduced=~1,
+               sfType="poscounts", minmu=1e-6, minRep=Inf)
 })
 ```
 
@@ -143,9 +142,6 @@ re-run the Wald or LRT function (this chunk not evaluated):
 ```{r, eval=FALSE}
 dispersionFunction(dds) <- dispersionFunction(dds2)
 dds <- estimateDispersionsMAP(dds)
-# for the Wald:
-dds <- nbinomWaldTest(dds, useT=TRUE, minmu=1e-6)
-# or for the LRT:
 dds <- nbinomLRT(dds, reduced=~1, minmu=1e-6)
 ```
 
