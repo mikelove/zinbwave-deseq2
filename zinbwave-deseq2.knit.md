@@ -157,7 +157,7 @@ system.time({
 
 ### Estimate dispersion and DE using *DESeq2*
 
-Below we use the default Wald test, although Van De Berge and
+Below we use the default Wald test, although Van Den Berge and
 Perraudeau and others have shown the LRT may perform better for null
 hypothesis testing.
 
