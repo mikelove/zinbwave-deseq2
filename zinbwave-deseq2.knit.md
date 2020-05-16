@@ -83,7 +83,7 @@ sim <- splatSimulate(params, group.prob=c(.5,.5), method="groups")
 ```
 
 ```
-## Simulating counts..
+## Simulating counts...
 ```
 
 ```
@@ -92,6 +92,10 @@ sim <- splatSimulate(params, group.prob=c(.5,.5), method="groups")
 
 ```
 ## Done!
+```
+
+```r
+# hist(rowSums(counts(sim) >= 1))
 ```
 
 
@@ -126,15 +130,16 @@ text(300, gridlines, labels=gridlines, col=cols, pos=3)
 
 ```r
 library(zinbwave)
-# low count filter - at least 25 samples with count of 5 or more
-keep <- rowSums(counts(sim) >= 5) >= 25
+library(BiocParallel)
+# low count filter - at least 10 with count of 5 or more
+keep <- rowSums(counts(sim) >= 5) >= 10
 table(keep)
 ```
 
 ```
 ## keep
 ## FALSE  TRUE 
-##  9026   974
+##  7914  2086
 ```
 
 ```r
@@ -145,14 +150,38 @@ nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
 # epsilon setting as recommended by the ZINB-WaVE integration paper
 system.time({
-  zinb <- zinbwave(zinb, K=0, BPPARAM=SerialParam(), epsilon=1e12)
+  zinb <- zinbwave(zinb, K=0, observationalWeights=TRUE,
+                   BPPARAM=SerialParam(), epsilon=1e12)
 })
 ```
 
 ```
 ##    user  system elapsed 
-##  14.189   0.072  14.261
+##  31.183   3.240  35.275
 ```
+
+### Estimate size factors
+
+
+```r
+suppressPackageStartupMessages(library(DESeq2))
+dds <- DESeqDataSet(zinb, design=~condition)
+dds <- estimateSizeFactors(dds, type="poscounts")
+library(scran)
+scr <- computeSumFactors(dds)
+dat <- data.frame(true=dds$ExpLibSize,
+                  pos=sizeFactors(dds),
+                  sum=sizeFactors(scr))
+dat$true <- dat$true / exp(mean(log(dat$true)))
+panel.scatter <- function(x,y,...) {
+  points(x,y,...)
+  abline(0,1,col="red",lwd=2)
+  legend("topleft", legend=round(cor(x,y),3))
+}
+pairs(dat, panel=panel.scatter)
+```
+
+<img src="zinbwave-deseq2_files/figure-html/unnamed-chunk-5-1.png" width="672" />
 
 ### Estimate dispersion and DE using *DESeq2*
 
@@ -160,17 +189,19 @@ Van den Berge and Perraudeau and others have shown the LRT may perform
 better for null hypothesis testing, so we use the LRT. In order to use
 the Wald test, it is recommended to set `useT=TRUE`.
 
+
 ```r
-suppressPackageStartupMessages(library(DESeq2))
-dds <- DESeqDataSet(zinb, design=~condition)
+# use scran's sum factors:
+sizeFactors(dds) <- sizeFactors(scr)
+# run DESeq:
 system.time({
   dds <- DESeq(dds, test="LRT", reduced=~1,
-               sfType="poscounts", minmu=1e-6, minRep=Inf)
+               minmu=1e-6, minRep=Inf)
 })
 ```
 
 ```
-## estimating size factors
+## using pre-existing size factors
 ```
 
 ```
@@ -179,6 +210,13 @@ system.time({
 
 ```
 ## gene-wise dispersion estimates
+```
+
+```
+## Warning in getAndCheckWeights(object, modelMatrix, weightThreshold = weightThreshold): for 2 row(s), the weights as supplied won't allow parameter estimation, producing a
+##   degenerate design matrix. These rows have been flagged in mcols(dds)$weightsFail
+##   and treated as if the row contained all zeros (mcols(dds)$allZero set to TRUE).
+##   If you are blocking for donors/organisms, consider design = ~0+donor+condition.
 ```
 
 ```
@@ -195,7 +233,7 @@ system.time({
 
 ```
 ##    user  system elapsed 
-##  19.722   0.003  19.725
+##  14.940   0.307  15.459
 ```
 
 ### Plot dispersion estimates
@@ -229,7 +267,7 @@ rest of the analysis. An example of how this can be done:
 ```r
 keepForDispTrend <- rowSums(counts(dds) >= 10) >= 25
 dds2 <- estimateDispersionsFit(dds[keepForDispTrend,])
-plotDispEsts(dds2)
+plotDispEsts(dds2, ylim=c(1e-3,1))
 ```
 
 <img src="zinbwave-deseq2_files/figure-html/plotDispEsts2-1.png" width="672" />
@@ -294,8 +332,8 @@ tab
 ```
 ##          sig
 ## DE.status FALSE TRUE
-##     FALSE   715   18
-##     TRUE     14  227
+##     FALSE  1587   32
+##     TRUE    125  340
 ```
 
 ```r
@@ -305,8 +343,8 @@ round(prop.table(tab, 2), 3)
 ```
 ##          sig
 ## DE.status FALSE  TRUE
-##     FALSE 0.981 0.073
-##     TRUE  0.019 0.927
+##     FALSE 0.927 0.086
+##     TRUE  0.073 0.914
 ```
 
 
@@ -315,130 +353,125 @@ session_info()
 ```
 
 ```
-## Session info -------------------------------------------------------------
-```
-
-```
-##  setting  value                                             
-##  version  R Under development (unstable) (2017-12-25 r73962)
-##  system   x86_64, linux-gnu                                 
-##  ui       X11                                               
-##  language (EN)                                              
-##  collate  en_US.UTF-8                                       
-##  tz       America/New_York                                  
-##  date     2018-04-27
-```
-
-```
-## Packages -----------------------------------------------------------------
-```
-
-```
-##  package              * version   date       source        
-##  acepack                1.4.1     2016-10-29 CRAN (R 3.5.0)
-##  ADGofTest              0.3       2011-12-28 CRAN (R 3.5.0)
-##  annotate               1.57.2    2017-12-27 Bioconductor  
-##  AnnotationDbi          1.41.4    2017-12-27 Bioconductor  
-##  backports              1.1.2     2017-12-13 CRAN (R 3.5.0)
-##  base                 * 3.5.0     2017-12-27 local         
-##  base64enc              0.1-3     2015-07-28 CRAN (R 3.5.0)
-##  Biobase              * 2.39.2    2018-02-03 Bioconductor  
-##  BiocGenerics         * 0.25.3    2018-03-20 Bioconductor  
-##  BiocInstaller        * 1.29.6    2018-04-12 Bioconductor  
-##  BiocParallel         * 1.13.1    2018-01-17 Bioconductor  
-##  bit                    1.1-12    2014-04-09 CRAN (R 3.5.0)
-##  bit64                  0.9-7     2017-05-08 CRAN (R 3.5.0)
-##  bitops                 1.0-6     2013-08-17 CRAN (R 3.5.0)
-##  blob                   1.1.0     2017-06-17 CRAN (R 3.5.0)
-##  checkmate              1.8.5     2017-10-24 CRAN (R 3.5.0)
-##  cluster                2.0.6     2017-03-10 CRAN (R 3.5.0)
-##  codetools              0.2-15    2016-10-05 CRAN (R 3.5.0)
-##  colorspace             1.3-2     2016-12-14 CRAN (R 3.5.0)
-##  compiler               3.5.0     2017-12-27 local         
-##  copula                 0.999-18  2017-09-01 CRAN (R 3.5.0)
-##  data.table             1.10.4-3  2017-10-27 CRAN (R 3.5.0)
-##  datasets             * 3.5.0     2017-12-27 local         
-##  DBI                    0.8       2018-03-02 CRAN (R 3.5.0)
-##  DelayedArray         * 0.5.31    2018-04-20 Bioconductor  
-##  DESeq2               * 1.19.51   2018-04-27 Bioconductor  
-##  devtools             * 1.13.5    2018-02-18 CRAN (R 3.5.0)
-##  digest                 0.6.15    2018-01-28 CRAN (R 3.5.0)
-##  edgeR                  3.21.9    2018-03-20 Bioconductor  
-##  evaluate               0.10.1    2017-06-24 CRAN (R 3.5.0)
-##  foreach                1.4.4     2017-12-12 CRAN (R 3.5.0)
-##  foreign                0.8-70    2017-11-28 CRAN (R 3.5.0)
-##  Formula                1.2-2     2017-07-10 CRAN (R 3.5.0)
-##  genefilter             1.61.1    2018-02-03 Bioconductor  
-##  geneplotter            1.57.0    2017-12-27 Bioconductor  
-##  GenomeInfoDb         * 1.15.5    2018-03-20 Bioconductor  
-##  GenomeInfoDbData       1.1.0     2017-12-27 Bioconductor  
-##  GenomicRanges        * 1.31.22   2018-03-20 Bioconductor  
-##  ggplot2                2.2.1     2016-12-30 CRAN (R 3.5.0)
-##  glmnet                 2.0-13    2017-09-22 CRAN (R 3.5.0)
-##  graphics             * 3.5.0     2017-12-27 local         
-##  grDevices            * 3.5.0     2017-12-27 local         
-##  grid                   3.5.0     2017-12-27 local         
-##  gridExtra              2.3       2017-09-09 CRAN (R 3.5.0)
-##  gsl                    1.9-10.3  2017-01-05 CRAN (R 3.5.0)
-##  gtable                 0.2.0     2016-02-26 CRAN (R 3.5.0)
-##  Hmisc                  4.1-1     2018-01-03 CRAN (R 3.5.0)
-##  htmlTable              1.11.2    2018-01-20 CRAN (R 3.5.0)
-##  htmltools              0.3.6     2017-04-28 CRAN (R 3.5.0)
-##  htmlwidgets            1.0       2018-01-20 CRAN (R 3.5.0)
-##  IRanges              * 2.13.28   2018-03-20 Bioconductor  
-##  iterators              1.0.9     2017-12-12 CRAN (R 3.5.0)
-##  knitr                  1.20      2018-02-20 CRAN (R 3.5.0)
-##  lattice                0.20-35   2017-03-25 CRAN (R 3.5.0)
-##  latticeExtra           0.6-28    2016-02-09 CRAN (R 3.5.0)
-##  lazyeval               0.2.1     2017-10-29 CRAN (R 3.5.0)
-##  limma                  3.35.13   2018-03-20 Bioconductor  
-##  locfit                 1.5-9.1   2013-04-20 CRAN (R 3.5.0)
-##  magrittr             * 1.5       2014-11-22 CRAN (R 3.5.0)
-##  Matrix                 1.2-12    2017-11-20 CRAN (R 3.5.0)
-##  matrixStats          * 0.53.1    2018-02-11 CRAN (R 3.5.0)
-##  memoise                1.1.0     2017-04-21 CRAN (R 3.5.0)
-##  methods              * 3.5.0     2017-12-27 local         
-##  munsell                0.4.3     2016-02-13 CRAN (R 3.5.0)
-##  mvtnorm                1.0-7     2018-01-26 CRAN (R 3.5.0)
-##  nnet                   7.3-12    2016-02-02 CRAN (R 3.5.0)
-##  numDeriv               2016.8-1  2016-08-27 CRAN (R 3.5.0)
-##  parallel             * 3.5.0     2017-12-27 local         
-##  pcaPP                  1.9-73    2018-01-14 CRAN (R 3.5.0)
-##  pillar                 1.2.1     2018-02-27 CRAN (R 3.5.0)
-##  plyr                   1.8.4     2016-06-08 CRAN (R 3.5.0)
-##  pspline                1.0-18    2017-06-12 CRAN (R 3.5.0)
-##  R6                     2.2.2     2017-06-17 CRAN (R 3.5.0)
-##  RColorBrewer           1.1-2     2014-12-07 CRAN (R 3.5.0)
-##  Rcpp                   0.12.16   2018-03-13 CRAN (R 3.5.0)
-##  RCurl                  1.95-4.10 2018-01-04 CRAN (R 3.5.0)
-##  rlang                  0.2.0     2018-02-20 CRAN (R 3.5.0)
-##  rmarkdown            * 1.9       2018-03-01 CRAN (R 3.5.0)
-##  rpart                  4.1-13    2018-02-23 CRAN (R 3.5.0)
-##  rprojroot              1.3-2     2018-01-03 CRAN (R 3.5.0)
-##  RSQLite                2.0       2017-06-19 CRAN (R 3.5.0)
-##  rstudioapi             0.7       2017-09-07 CRAN (R 3.5.0)
-##  S4Vectors            * 0.17.37   2018-03-20 Bioconductor  
-##  scales                 0.5.0     2017-08-24 CRAN (R 3.5.0)
-##  SingleCellExperiment * 1.1.3     2018-04-20 Bioconductor  
-##  softImpute             1.4       2015-04-08 CRAN (R 3.5.0)
-##  splatter             * 1.3.5     2018-04-27 Bioconductor  
-##  splines                3.5.0     2017-12-27 local         
-##  stabledist             0.7-1     2016-09-12 CRAN (R 3.5.0)
-##  stats                * 3.5.0     2017-12-27 local         
-##  stats4               * 3.5.0     2017-12-27 local         
-##  stringi                1.1.7     2018-03-12 CRAN (R 3.5.0)
-##  stringr                1.3.0     2018-02-19 CRAN (R 3.5.0)
-##  SummarizedExperiment * 1.9.15    2018-03-20 Bioconductor  
-##  survival               2.41-3    2017-04-04 CRAN (R 3.5.0)
-##  testthat             * 2.0.0     2017-12-13 CRAN (R 3.5.0)
-##  tibble                 1.4.2     2018-01-22 CRAN (R 3.5.0)
-##  tools                  3.5.0     2017-12-27 local         
-##  utils                * 3.5.0     2017-12-27 local         
-##  withr                  2.1.2     2018-03-15 CRAN (R 3.5.0)
-##  XML                    3.98-1.10 2018-02-19 CRAN (R 3.5.0)
-##  xtable                 1.8-2     2016-02-05 CRAN (R 3.5.0)
-##  XVector                0.19.9    2018-03-20 Bioconductor  
-##  yaml                   2.1.18    2018-03-08 CRAN (R 3.5.0)
-##  zinbwave             * 1.1.7     2018-04-27 Bioconductor  
-##  zlibbioc               1.25.0    2017-12-27 Bioconductor
+## ─ Session info ───────────────────────────────────────────────────────────────────────────────────
+##  setting  value                       
+##  version  R version 4.0.0 (2020-04-24)
+##  os       macOS Catalina 10.15.4      
+##  system   x86_64, darwin17.0          
+##  ui       X11                         
+##  language (EN)                        
+##  collate  en_US.UTF-8                 
+##  ctype    en_US.UTF-8                 
+##  tz       America/New_York            
+##  date     2020-05-16                  
+## 
+## ─ Packages ───────────────────────────────────────────────────────────────────────────────────────
+##  package              * version  date       lib source        
+##  annotate               1.67.0   2020-04-27 [1] Bioconductor  
+##  AnnotationDbi          1.51.0   2020-04-27 [1] Bioconductor  
+##  assertthat             0.2.1    2019-03-21 [1] CRAN (R 4.0.0)
+##  backports              1.1.6    2020-04-05 [1] CRAN (R 4.0.0)
+##  beeswarm               0.2.3    2016-04-25 [1] CRAN (R 4.0.0)
+##  Biobase              * 2.49.0   2020-04-27 [1] Bioconductor  
+##  BiocGenerics         * 0.35.2   2020-05-06 [1] Bioconductor  
+##  BiocManager            1.30.10  2019-11-16 [1] CRAN (R 4.0.0)
+##  BiocNeighbors          1.7.0    2020-04-27 [1] Bioconductor  
+##  BiocParallel         * 1.23.0   2020-04-27 [1] Bioconductor  
+##  BiocSingular           1.5.0    2020-04-27 [1] Bioconductor  
+##  bit                    1.1-15.2 2020-02-10 [1] CRAN (R 4.0.0)
+##  bit64                  0.9-7    2017-05-08 [1] CRAN (R 4.0.0)
+##  bitops                 1.0-6    2013-08-17 [1] CRAN (R 4.0.0)
+##  blob                   1.2.1    2020-01-20 [1] CRAN (R 4.0.0)
+##  callr                  3.4.3    2020-03-28 [1] CRAN (R 4.0.0)
+##  checkmate              2.0.0    2020-02-06 [1] CRAN (R 4.0.0)
+##  cli                    2.0.2    2020-02-28 [1] CRAN (R 4.0.0)
+##  colorspace             1.4-1    2019-03-18 [1] CRAN (R 4.0.0)
+##  crayon                 1.3.4    2017-09-16 [1] CRAN (R 4.0.0)
+##  DBI                    1.1.0    2019-12-15 [1] CRAN (R 4.0.0)
+##  DelayedArray         * 0.15.1   2020-05-01 [1] Bioconductor  
+##  DelayedMatrixStats     1.11.0   2020-04-27 [1] Bioconductor  
+##  desc                   1.2.0    2018-05-01 [1] CRAN (R 4.0.0)
+##  DESeq2               * 1.29.3   2020-05-15 [1] Bioconductor  
+##  devtools             * 2.3.0    2020-04-10 [1] CRAN (R 4.0.0)
+##  digest                 0.6.25   2020-02-23 [1] CRAN (R 4.0.0)
+##  dplyr                  0.8.5    2020-03-07 [1] CRAN (R 4.0.0)
+##  dqrng                  0.2.1    2019-05-17 [1] CRAN (R 4.0.0)
+##  edgeR                  3.31.0   2020-04-27 [1] Bioconductor  
+##  ellipsis               0.3.0    2019-09-20 [1] CRAN (R 4.0.0)
+##  evaluate               0.14     2019-05-28 [1] CRAN (R 4.0.0)
+##  fansi                  0.4.1    2020-01-08 [1] CRAN (R 4.0.0)
+##  fs                     1.4.1    2020-04-04 [1] CRAN (R 4.0.0)
+##  genefilter             1.71.0   2020-04-27 [1] Bioconductor  
+##  geneplotter            1.67.0   2020-04-27 [1] Bioconductor  
+##  GenomeInfoDb         * 1.25.0   2020-04-27 [1] Bioconductor  
+##  GenomeInfoDbData       1.2.3    2020-04-25 [1] Bioconductor  
+##  GenomicRanges        * 1.41.1   2020-05-02 [1] Bioconductor  
+##  ggbeeswarm             0.6.0    2017-08-07 [1] CRAN (R 4.0.0)
+##  ggplot2                3.3.0    2020-03-05 [1] CRAN (R 4.0.0)
+##  glue                   1.4.0    2020-04-03 [1] CRAN (R 4.0.0)
+##  gridExtra              2.3      2017-09-09 [1] CRAN (R 4.0.0)
+##  gtable                 0.3.0    2019-03-25 [1] CRAN (R 4.0.0)
+##  htmltools              0.4.0    2019-10-04 [1] CRAN (R 4.0.0)
+##  igraph                 1.2.5    2020-03-19 [1] CRAN (R 4.0.0)
+##  IRanges              * 2.23.4   2020-05-03 [1] Bioconductor  
+##  irlba                  2.3.3    2019-02-05 [1] CRAN (R 4.0.0)
+##  knitr                  1.28     2020-02-06 [1] CRAN (R 4.0.0)
+##  lattice                0.20-41  2020-04-02 [1] CRAN (R 4.0.0)
+##  lifecycle              0.2.0    2020-03-06 [1] CRAN (R 4.0.0)
+##  limma                  3.45.0   2020-04-27 [1] Bioconductor  
+##  locfit                 1.5-9.4  2020-03-25 [1] CRAN (R 4.0.0)
+##  magrittr               1.5      2014-11-22 [1] CRAN (R 4.0.0)
+##  Matrix                 1.2-18   2019-11-27 [1] CRAN (R 4.0.0)
+##  matrixStats          * 0.56.0   2020-03-13 [1] CRAN (R 4.0.0)
+##  memoise                1.1.0    2017-04-21 [1] CRAN (R 4.0.0)
+##  munsell                0.5.0    2018-06-12 [1] CRAN (R 4.0.0)
+##  pillar                 1.4.4    2020-05-05 [1] CRAN (R 4.0.0)
+##  pkgbuild               1.0.8    2020-05-07 [1] CRAN (R 4.0.0)
+##  pkgconfig              2.0.3    2019-09-22 [1] CRAN (R 4.0.0)
+##  pkgload                1.0.2    2018-10-29 [1] CRAN (R 4.0.0)
+##  prettyunits            1.1.1    2020-01-24 [1] CRAN (R 4.0.0)
+##  processx               3.4.2    2020-02-09 [1] CRAN (R 4.0.0)
+##  ps                     1.3.3    2020-05-08 [1] CRAN (R 4.0.0)
+##  purrr                  0.3.4    2020-04-17 [1] CRAN (R 4.0.0)
+##  R6                     2.4.1    2019-11-12 [1] CRAN (R 4.0.0)
+##  RColorBrewer           1.1-2    2014-12-07 [1] CRAN (R 4.0.0)
+##  Rcpp                   1.0.4.6  2020-04-09 [1] CRAN (R 4.0.0)
+##  RCurl                  1.98-1.2 2020-04-18 [1] CRAN (R 4.0.0)
+##  remotes                2.1.1    2020-02-15 [1] CRAN (R 4.0.0)
+##  rlang                  0.4.6    2020-05-02 [1] CRAN (R 4.0.0)
+##  rmarkdown            * 2.1      2020-01-20 [1] CRAN (R 4.0.0)
+##  rprojroot              1.3-2    2018-01-03 [1] CRAN (R 4.0.0)
+##  RSQLite                2.2.0    2020-01-07 [1] CRAN (R 4.0.0)
+##  rsvd                   1.0.3    2020-02-17 [1] CRAN (R 4.0.0)
+##  S4Vectors            * 0.27.5   2020-05-06 [1] Bioconductor  
+##  scales                 1.1.1    2020-05-11 [1] CRAN (R 4.0.0)
+##  scater                 1.17.0   2020-04-27 [1] Bioconductor  
+##  scran                * 1.17.0   2020-04-27 [1] Bioconductor  
+##  sessioninfo            1.1.1    2018-11-05 [1] CRAN (R 4.0.0)
+##  SingleCellExperiment * 1.11.1   2020-04-28 [1] Bioconductor  
+##  softImpute             1.4      2015-04-08 [1] CRAN (R 4.0.0)
+##  splatter             * 1.13.0   2020-05-14 [1] Bioconductor  
+##  statmod                1.4.34   2020-02-17 [1] CRAN (R 4.0.0)
+##  stringi                1.4.6    2020-02-17 [1] CRAN (R 4.0.0)
+##  stringr                1.4.0    2019-02-10 [1] CRAN (R 4.0.0)
+##  SummarizedExperiment * 1.19.2   2020-05-01 [1] Bioconductor  
+##  survival               3.1-12   2020-04-10 [1] CRAN (R 4.0.0)
+##  testthat             * 2.3.2    2020-03-02 [1] CRAN (R 4.0.0)
+##  tibble                 3.0.1    2020-04-20 [1] CRAN (R 4.0.0)
+##  tidyselect             1.0.0    2020-01-27 [1] CRAN (R 4.0.0)
+##  usethis              * 1.6.1    2020-04-29 [1] CRAN (R 4.0.0)
+##  vctrs                  0.2.4    2020-03-10 [1] CRAN (R 4.0.0)
+##  vipor                  0.4.5    2017-03-22 [1] CRAN (R 4.0.0)
+##  viridis                0.5.1    2018-03-29 [1] CRAN (R 4.0.0)
+##  viridisLite            0.3.0    2018-02-01 [1] CRAN (R 4.0.0)
+##  withr                  2.2.0    2020-04-20 [1] CRAN (R 4.0.0)
+##  xfun                   0.13     2020-04-13 [1] CRAN (R 4.0.0)
+##  XML                    3.99-0.3 2020-01-20 [1] CRAN (R 4.0.0)
+##  xtable                 1.8-4    2019-04-21 [1] CRAN (R 4.0.0)
+##  XVector                0.29.0   2020-04-27 [1] Bioconductor  
+##  yaml                   2.2.1    2020-02-01 [1] CRAN (R 4.0.0)
+##  zinbwave             * 1.11.0   2020-05-14 [1] Bioconductor  
+##  zlibbioc               1.35.0   2020-04-27 [1] Bioconductor  
+## 
+## [1] /Library/Frameworks/R.framework/Versions/4.0/Resources/library
 ```

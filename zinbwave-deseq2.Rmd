@@ -50,6 +50,7 @@ params <- setParam(params, "dropout.mid", 3)
 ```{r}
 set.seed(1)
 sim <- splatSimulate(params, group.prob=c(.5,.5), method="groups")
+# hist(rowSums(counts(sim) >= 1))
 ```
 
 ```{r dropout}
@@ -76,8 +77,9 @@ text(300, gridlines, labels=gridlines, col=cols, pos=3)
 
 ```{r}
 library(zinbwave)
-# low count filter - at least 25 samples with count of 5 or more
-keep <- rowSums(counts(sim) >= 5) >= 25
+library(BiocParallel)
+# low count filter - at least 10 with count of 5 or more
+keep <- rowSums(counts(sim) >= 5) >= 10
 table(keep)
 zinb <- sim[keep,]
 zinb$condition <- factor(zinb$Group)
@@ -86,8 +88,29 @@ nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
 # epsilon setting as recommended by the ZINB-WaVE integration paper
 system.time({
-  zinb <- zinbwave(zinb, K=0, BPPARAM=SerialParam(), epsilon=1e12)
+  zinb <- zinbwave(zinb, K=0, observationalWeights=TRUE,
+                   BPPARAM=SerialParam(), epsilon=1e12)
 })
+```
+
+### Estimate size factors
+
+```{r}
+suppressPackageStartupMessages(library(DESeq2))
+dds <- DESeqDataSet(zinb, design=~condition)
+dds <- estimateSizeFactors(dds, type="poscounts")
+library(scran)
+scr <- computeSumFactors(dds)
+dat <- data.frame(true=dds$ExpLibSize,
+                  pos=sizeFactors(dds),
+                  sum=sizeFactors(scr))
+dat$true <- dat$true / exp(mean(log(dat$true)))
+panel.scatter <- function(x,y,...) {
+  points(x,y,...)
+  abline(0,1,col="red",lwd=2)
+  legend("topleft", legend=round(cor(x,y),3))
+}
+pairs(dat, panel=panel.scatter)
 ```
 
 ### Estimate dispersion and DE using *DESeq2*
@@ -97,11 +120,12 @@ better for null hypothesis testing, so we use the LRT. In order to use
 the Wald test, it is recommended to set `useT=TRUE`.
 
 ```{r}
-suppressPackageStartupMessages(library(DESeq2))
-dds <- DESeqDataSet(zinb, design=~condition)
+# use scran's sum factors:
+sizeFactors(dds) <- sizeFactors(scr)
+# run DESeq:
 system.time({
   dds <- DESeq(dds, test="LRT", reduced=~1,
-               sfType="poscounts", minmu=1e-6, minRep=Inf)
+               minmu=1e-6, minRep=Inf)
 })
 ```
 
@@ -132,7 +156,7 @@ rest of the analysis. An example of how this can be done:
 ```{r plotDispEsts2}
 keepForDispTrend <- rowSums(counts(dds) >= 10) >= 25
 dds2 <- estimateDispersionsFit(dds[keepForDispTrend,])
-plotDispEsts(dds2)
+plotDispEsts(dds2, ylim=c(1e-3,1))
 ```
 
 One would then assign the dispersion function to the original dataset,
