@@ -148,6 +148,7 @@ zinb$condition <- factor(zinb$Group)
 # we need to reorganize the assays in the SumExp from splatter
 nms <- c("counts", setdiff(assayNames(zinb), "counts"))
 assays(zinb) <- assays(zinb)[nms]
+assay(zinb) <- as.matrix(assay(zinb))
 # epsilon setting as recommended by the ZINB-WaVE integration paper
 system.time({
   zinb <- zinbwave(zinb, K=0, observationalWeights=TRUE,
